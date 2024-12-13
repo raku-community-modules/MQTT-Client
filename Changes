@@ -1,0 +1,4 @@
+Revision history for MQTT::Client
+
+{{$NEXT}}
+    - Initial version as a Raku Community Module

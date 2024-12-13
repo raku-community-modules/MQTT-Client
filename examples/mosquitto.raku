@@ -1,11 +1,10 @@
-#!perl6
-use v6;
-use lib 'lib';
 use MQTT::Client;
 
 my $m = MQTT::Client.new: server => 'test.mosquitto.org';
 
 await $m.connect;
+
+say "connected";
 
 $m.publish: "hello-world", "$*PID says hi";
 

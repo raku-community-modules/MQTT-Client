@@ -1,18 +1,16 @@
-use v6;
+use MQTT::Client::MyPack;
 
 unit class MQTT::Client;
 
-use MQTT::Client::MyPack;
-
-has Int      $.keepalive-interval    is rw = 60;
-has Int      $.maximum-length        is rw = 2097152;  # 2 MB
-has Str      $.client-identifier     is rw = "perl6";
-has Str      $.server                is rw;
-has Int      $.port                  is rw = 1883;
+has Int      $.keepalive-interval is rw = 60;
+has Int      $.maximum-length     is rw = 2097152;  # 2 MB
+has Str      $.client-identifier  is rw = "perl6";
+has Str      $.server             is rw;
+has Int      $.port               is rw = 1883;
 has Supply   $!messages;
 has IO::Socket::Async $!connection;
 
-our sub filter-as-regex ($filter) {
+our sub filter-as-regex($filter) {
     my sub quotemeta ($str is copy) {
         $str ~~ s:g[\W+] = "'$/'";
         return $str;
@@ -34,11 +32,11 @@ our sub filter-as-regex ($filter) {
     }
     $regex ~= '$' if $anchor;
 
-    return /<$regex>/;
+    /<$regex>/;
 }
 
-method connect () {
-    return start {
+method connect() {
+    start {
         use experimental :pack;
 
         $!connection = await IO::Socket::Async.connect: $!server, $!port;
@@ -64,9 +62,9 @@ method connect () {
 
         Supply.interval( $!keepalive-interval ).tap: {
             $!connection.write: pack "C x", 0xc0;
-        };
+        }
 
-        True;
+        True
     }
 }
 
@@ -95,9 +93,9 @@ method !parse (Buf $buf is rw) {
         data   => $buf.subbuf($offset, $length);
     };
 
-    $buf.=subbuf($offset + $length);
+    $buf .= subbuf($offset + $length);
 
-    return %packet;
+    %packet
 }
 
 method !incoming-packets (Supply $binary) {
@@ -110,39 +108,38 @@ method !incoming-packets (Supply $binary) {
             }
         }
     }
-
 }
 
-multi method publish (Str $topic, Blob $message) {
-    $!connection.write: mypack "C m/(n/a* a*)", 0x30, $topic, $message;
+multi method publish(Str $topic, Blob $message) {
+    $!connection.write: mypack "C m/(n/a* a*)", 0x30, $topic, $message
 }
 
-multi method publish (Str $topic, Str $message) {
-    self.publish: $topic, $message.encode;
+multi method publish(Str $topic, Str $message) {
+    self.publish: $topic, $message.encode
 }
 
-multi method retain (Str $topic, Blob $message) {
-    $!connection.write: mypack "C m/(n/a* a*)", 0x31, $topic, $message;
+multi method retain(Str $topic, Blob $message) {
+    $!connection.write: mypack "C m/(n/a* a*)", 0x31, $topic, $message
 }
 
-multi method retain (Str $topic, Str $message) {
-    self.publish: $topic, $message.encode;
+multi method retain(Str $topic, Str $message) {
+    self.publish: $topic, $message.encode
 }
 
-method subscribe (Str $topic) returns Supply:D {
+method subscribe(Str $topic --> Supply:D) {
     $!connection.write: mypack "C m/(C C n/a* C)", 0x82,
         0, 0, $topic, 0;
 
     my $regex = filter-as-regex($topic);
 
-    return $!messages.grep: { .<topic> ~~ $regex };
+    $!messages.grep: { .<topic> ~~ $regex }
 }
 
-method messages () returns Supply:D {
-    return $!messages.Supply;
+method messages(--> Supply:D) {
+    $!messages.Supply
 }
 
-method connection () returns Promise:D {
+method connection (--> Promise:D) {
     ...
 }
 
@@ -154,38 +151,42 @@ MQTT::Client - Minimal MQTT v3 client interface for Perl 6
 
 =head1 SYNOPSIS
 
-    use MQTT::Client;
+=begin code :lang<raku>
 
-    my $m = MQTT::Client.new('test.mosquitto.org');
-    await $m.connect;
+use MQTT::Client;
 
-    $m.publish("hello-world", "$*PID is still here!");
+my $m = MQTT::Client.new('test.mosquitto.org');
+await $m.connect;
 
-    react {
-        whenever $m.subscribe("typing-speed-test.aoeu.eu") {
-            say "Typing test completed at { .<message>.decode("utf8-c8") }";
-        }
+$m.publish("hello-world", "$*PID is still here!");
 
-        whenever Supply.interval(10) {
-            $m.publish("hello-world", "$*PID is still here!");
-        }
+react {
+    whenever $m.subscribe("typing-speed-test.aoeu.eu") {
+        say "Typing test completed at { .<message>.decode("utf8-c8") }";
     }
+
+    whenever Supply.interval(10) {
+        $m.publish("hello-world", "$*PID is still here!");
+    }
+}
+
+=end code
 
 =head1 METHODS
 
 =head2 new($server, $port)
 
-Returns a new MQTT object. Note: it does not automatically connect. Before doing
-anything, .connect should be called!
+Returns a new C<MQTT::Client> object. Note: it does not automatically
+connect. Before doing anything, C<.connect> should be called!
 
 =head2 connect
 
-Attempts to connect to the MQTT broker, and returns a Promise that will be kept
-after connection confirmation from the broker.
+Attempts to connect to the MQTT broker, and returns a C<Promise> that
+will be kept after connection confirmation from the broker.
 
 =head2 connection
 
-Returns a Promise that isn't kept until the connection ends.
+Returns a C<Promise> that isn't kept until the connection ends.
 
 =head2 publish(Str $topic, Buf|Str $message)
 
@@ -196,26 +197,26 @@ UTF-8 encoded. Topics are always UTF-8 encoded in MQTT.
 
 =head2 subscribe($topic)
 
-Subscribes to the topic, returning a Supply of messages that match the topic.
-Note that messages that are matched by multiple subscriptions will be passed
-to all of the supplies that match.
+Subscribes to the topic, returning a C<Supply> of messages that
+match the topic.  Note that messages that are matched by multiple
+subscriptions will be passed to all of the supplies that match.
 
-Tap the supply to receive, for each message, a hash with the keys C<topic>,
-C<message>, and a boolean C<retain>. Note that C<message> is a Buf (binary
-buffer), which in most cases you will need to C<.decode> before you can use it.
+Tap the supply to receive, for each message, a hash with the keys
+C<topic>, C<message>, and a boolean C<retain>. Note that C<message>
+is a C<Buf> (binary buffer), which in most cases you will need to
+C<.decode> before you can use it.
 
 =head1 FUNCTIONS
 
 =head2 MQTT::Client::filter_as_regex(topic_filter)
 
-Given a valid MQTT topic filter, returns the corresponding regular expression.
+Given a valid MQTT topic filter, returns the corresponding regular
+expression.
 
 =head1 NOT YET IMPLEMENTED
 
-The following features that are present in Net::MQTT::Simple for Perl 5, have
-not yet been implemented in MQTT::Client for Perl 6:
-
-=over
+The following features that are present in Net::MQTT::Simple for
+Perl, have not yet been implemented in C<MQTT::Client> for Raku:
 
 =item dropping the connection when a large message is received
 
@@ -229,21 +230,17 @@ not yet been implemented in MQTT::Client for Perl 6:
 
 =item simple functional interface
 
-=back
-
 =head1 NOT SUPPORTED
-
-=over 4
 
 =item QoS (Quality of Service)
 
-Every message is published at QoS level 0, that is, "at most once", also known
-as "fire and forget".
+Every message is published at QoS level 0, that is, "at most once",
+also known as "fire and forget".
 
 =item DUP (Duplicate message)
 
-Since QoS is not supported, no retransmissions are done, and no message will
-indicate that it has already been sent before.
+Since QoS is not supported, no retransmissions are done, and no
+message will indicate that it has already been sent before.
 
 =item Authentication
 
@@ -251,38 +248,41 @@ No username and password are sent to the server.
 
 =item Last will
 
-The server won't publish a "last will" message on behalf of us when our
-connection's gone.
+The server won't publish a "last will" message on behalf of us when
+our connection's gone.
 
 =item Large data
 
-Because everything is handled in memory and there's no way to indicate to the
-server that large messages are not desired, the connection is dropped as soon
-as the server announces a packet larger than 2 megabytes.
+Because everything is handled in memory and there's no way to indicate
+to the server that large messages are not desired, the connection is
+dropped as soon as the server announces a packet larger than 2 megabytes.
 
 =item Validation of server-to-client communication
 
-The MQTT spec prescribes mandatory validation of all incoming data, and
-disconnecting if anything (really, anything) is wrong with it. However, this
-minimal implementation silently ignores anything it doesn't specifically
-handle, which may result in weird behaviour if the server sends out bad data.
+The MQTT spec prescribes mandatory validation of all incoming data,
+and disconnecting if anything (really, anything) is wrong with it.
+However, this minimal implementation silently ignores anything it
+doesn't specifically handle, which may result in weird behaviour if
+the server sends out bad data.
 
 Most clients do not adhere to this part of the specifications.
 
-=back 
-
-=head1 LICENSE
-
-Pick your favourite OSI approved license :)
-
-http://www.opensource.org/licenses/alphabetical
-
 =head1 AUTHOR
 
-Juerd Waalboer <juerd@tnx.nl>
+Juerd Waalboer
+
+=head1 COPYRIGHT AND LICENSE
+
+Copyright 2015 - 2019 Juerd Waalboer
+
+Copyright 2024 Raku Community
+
+This library is free software; you can redistribute it and/or modify it under the Artistic License 2.0.
 
 =head1 SEE ALSO
 
-Net::MQTT::Simple for Perl 5
+L<Net::MQTT::Simple|https://metacpan.org/pod/Net::MQTT::Simple> inr Perl
 
 =end pod
+
+# vim: expandtab shiftwidth=4
